@@ -21,37 +21,34 @@ export default function AdminConverterPage() {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Convert Excel to JSON
         const rawJson = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
-        // Clean and map the data
         const cleanData = rawJson.map((row: any) => {
-          // Safely handle potential hidden spaces in the column headers
           const attendanceVal = row["How many LSAs have you attended?\u00A0"] || 
                                 row["How many LSAs have you attended? "] || 
                                 row["How many LSAs have you attended?"] || 
-                                "Unknown";
+                                "None";
 
           return {
             workGroup: row["What legislative work group are you a part of?"] || "Unknown",
-            attendance: attendanceVal,
-            topics: [
-              row["General Professional Development"],
-              row["Legislative Process and Environment"],
-              row["Policy and Issue Areas"],
-              row["Budget and Fiscal Policy"],
-              row["Legal Foundations"],
-              row["Research and Drafting"]
-            ].filter(Boolean).join(";") // Combine all topic columns into one string
+            attendance: typeof attendanceVal === 'string' ? attendanceVal.trim() : attendanceVal,
+            // We are now keeping the topics separated by category
+            categories: {
+              genProf: row["General Professional Development"] || "",
+              legProc: row["Legislative Process and Environment"] || "",
+              policy: row["Policy and Issue Areas"] || "",
+              budget: row["Budget and Fiscal Policy"] || "",
+              legal: row["Legal Foundations"] || "",
+              research: row["Research and Drafting"] || ""
+            }
           };
         });
 
-        // Create a downloadable JSON file
         const blob = new Blob([JSON.stringify(cleanData, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         
         setDownloadUrl(url);
-        setStatus(`Successfully processed ${cleanData.length} responses. Ready to download!`);
+        setStatus(`Successfully processed ${cleanData.length} responses with category groupings. Ready to download!`);
       } catch (error: any) {
         setStatus(`Error processing file: ${error.message}`);
       }
@@ -62,8 +59,8 @@ export default function AdminConverterPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">
       <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-200 max-w-md w-full text-center">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Data Converter</h1>
-        <p className="text-sm text-slate-500 mb-6">Upload your LSA Survey (.xlsx) to generate the static JSON file for the public dashboard.</p>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">Data Converter V2</h1>
+        <p className="text-sm text-slate-500 mb-6">Upload your LSA Survey to generate the categorized JSON file.</p>
         
         <input 
           type="file" 
@@ -80,7 +77,7 @@ export default function AdminConverterPage() {
             download="survey-data.json"
             className="block w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
           >
-            Download survey-data.json
+            Download updated survey-data.json
           </a>
         )}
       </div>
