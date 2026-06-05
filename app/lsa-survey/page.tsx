@@ -6,16 +6,18 @@ import { Bar } from 'react-chartjs-2';
 
 ChartJS.register(Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
+// We've added specific colors to each category
 const CATEGORIES = [
-  { id: 'genProf', title: 'General Professional Development' },
-  { id: 'legProc', title: 'Legislative Process and Environment' },
-  { id: 'policy', title: 'Policy and Issue Areas' },
-  { id: 'budget', title: 'Budget and Fiscal Policy' },
-  { id: 'legal', title: 'Legal Foundations' },
-  { id: 'research', title: 'Research and Drafting' }
+  { id: 'genProf', title: 'General Professional Development', color: '#3b82f6' }, // Blue
+  { id: 'legProc', title: 'Legislative Process and Environment', color: '#10b981' }, // Emerald
+  { id: 'policy', title: 'Policy and Issue Areas', color: '#f59e0b' }, // Amber
+  { id: 'budget', title: 'Budget and Fiscal Policy', color: '#ef4444' }, // Red
+  { id: 'legal', title: 'Legal Foundations', color: '#8b5cf6' }, // Violet
+  { id: 'research', title: 'Research and Drafting', color: '#0ea5e9' } // Sky
 ];
 
-const COLORS = ['#0f172a', '#3b82f6', '#0ea5e9', '#6366f1', '#8b5cf6', '#cbd5e1'];
+// Fallback colors for when comparing multiple workgroups side-by-side
+const COMPARE_COLORS = ['#0f172a', '#64748b', '#94a3b8', '#cbd5e1'];
 
 export default function PublicDashboard() {
   const [data, setData] = useState<any[]>([]);
@@ -41,6 +43,21 @@ export default function PublicDashboard() {
   const rawAttendance = Array.from(new Set(data.map(d => d.attendance))).filter(Boolean);
   const attendanceOrder = ["None", "1-2", "3-4", "More than 4"];
   const sortedAttendance = attendanceOrder.filter(a => rawAttendance.includes(a));
+
+  // Build a map of Topic -> Category ID so we can color the overall chart correctly
+  const topicCategoryMap: Record<string, string> = {};
+  data.forEach(row => {
+    if (row.categories) {
+      Object.entries(row.categories).forEach(([catId, catStr]) => {
+        if (typeof catStr === 'string') {
+          catStr.split(';').forEach(t => {
+            const cleanT = t.trim();
+            if (cleanT) topicCategoryMap[cleanT] = catId;
+          });
+        }
+      });
+    }
+  });
 
   // Toggle Logic for Multi-Select Filters
   const toggleSelection = (item: string, currentList: string[], setList: (val: string[]) => void) => {
@@ -123,15 +140,34 @@ export default function PublicDashboard() {
 
     if (topTopics.length === 0 || overallCounts[topTopics[0]] === 0) return null;
 
-    // 4. Build ChartJS Data
+    // 4. Build ChartJS Data and Colors
+    const isComparing = compareGroups.length > 1;
+    
     const chartData = {
       labels: topTopics.map(t => t.length > (isOverall ? 60 : 40) ? t.substring(0, isOverall ? 60 : 40) + '...' : t),
-      datasets: compareGroups.map((g, index) => ({
-        label: g,
-        data: topTopics.map(t => groupCounts[g][t]),
-        backgroundColor: COLORS[index % COLORS.length],
-        borderRadius: 4
-      }))
+      datasets: compareGroups.map((g, index) => {
+        
+        // Determine coloring based on context
+        let barColors: string | string[];
+        if (isComparing) {
+          barColors = COMPARE_COLORS[index % COMPARE_COLORS.length]; // Use neutral colors to distinguish workgroups
+        } else if (categoryId) {
+          barColors = CATEGORIES.find(c => c.id === categoryId)?.color || '#0f172a'; // Single category color
+        } else {
+          // Overall chart: color each bar by its respective parent category
+          barColors = topTopics.map(t => {
+            const catId = topicCategoryMap[t];
+            return CATEGORIES.find(c => c.id === catId)?.color || '#0f172a';
+          });
+        }
+
+        return {
+          label: g,
+          data: topTopics.map(t => groupCounts[g][t]),
+          backgroundColor: barColors,
+          borderRadius: 4
+        };
+      })
     };
 
     return (
@@ -144,7 +180,7 @@ export default function PublicDashboard() {
               maintainAspectRatio: false, 
               indexAxis: 'y', 
               plugins: { 
-                legend: { display: compareGroups.length > 1, position: 'top' },
+                legend: { display: isComparing, position: 'top' },
                 tooltip: { callbacks: { title: (ctx) => topTopics[ctx[0].dataIndex] } }
               },
               scales: { x: { ticks: { precision: 0 } } }
@@ -158,60 +194,62 @@ export default function PublicDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 p-6 md:p-10 font-sans">
       <div className="max-w-7xl mx-auto">
-        <header className="mb-8 p-8 bg-slate-900 rounded-xl shadow-lg text-white">
+        <header className="mb-6 p-8 bg-slate-900 rounded-xl shadow-lg text-white">
           <h1 className="text-3xl font-bold mb-2">Legislative Staff Academy 2026</h1>
           <p className="text-slate-300">Session Topic Survey Results</p>
         </header>
 
-        {/* Filters */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-8">
-          <div className="mb-6">
-            <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Filter by Work Group (Multi-Select)</span>
-            <div className="flex flex-wrap gap-2">
-              <button 
-                onClick={() => toggleSelection("All", selectedWorkGroups, setSelectedWorkGroups)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedWorkGroups.includes("All") ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-              >
-                All Work Groups
-              </button>
-              {allWorkGroups.map(wg => (
+        {/* Sticky Header: Merged Filters & Metrics */}
+        <div className="sticky top-4 z-50 bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-slate-200 mb-8 flex flex-col xl:flex-row gap-6 items-start xl:items-center justify-between transition-all">
+          
+          <div className="flex-1 w-full flex flex-col gap-4">
+            <div>
+              <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Filter by Work Group</span>
+              <div className="flex flex-wrap gap-2">
                 <button 
-                  key={wg}
-                  onClick={() => toggleSelection(wg, selectedWorkGroups, setSelectedWorkGroups)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedWorkGroups.includes(wg) ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  onClick={() => toggleSelection("All", selectedWorkGroups, setSelectedWorkGroups)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${selectedWorkGroups.includes("All") ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                 >
-                  {wg}
+                  All Work Groups
                 </button>
-              ))}
+                {allWorkGroups.map(wg => (
+                  <button 
+                    key={wg}
+                    onClick={() => toggleSelection(wg, selectedWorkGroups, setSelectedWorkGroups)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${selectedWorkGroups.includes(wg) ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    {wg}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Filter by Attendance</span>
+              <div className="flex flex-wrap gap-2">
+                <button 
+                  onClick={() => toggleSelection("All", selectedAttendance, setSelectedAttendance)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${selectedAttendance.includes("All") ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  All Attendance
+                </button>
+                {sortedAttendance.map(att => (
+                  <button 
+                    key={att}
+                    onClick={() => toggleSelection(att, selectedAttendance, setSelectedAttendance)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${selectedAttendance.includes(att) ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    {att}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div>
-            <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Filter by Attendance (Multi-Select)</span>
-            <div className="flex flex-wrap gap-2">
-              <button 
-                onClick={() => toggleSelection("All", selectedAttendance, setSelectedAttendance)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedAttendance.includes("All") ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-              >
-                All Attendance
-              </button>
-              {sortedAttendance.map(att => (
-                <button 
-                  key={att}
-                  onClick={() => toggleSelection(att, selectedAttendance, setSelectedAttendance)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedAttendance.includes(att) ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  {att}
-                </button>
-              ))}
-            </div>
+          <div className="flex-shrink-0 w-full xl:w-auto bg-slate-50 border border-slate-200 p-4 rounded-lg text-center shadow-inner">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Matching Respondents</p>
+            <p className="text-4xl font-bold text-slate-900">{filteredData.length}</p>
           </div>
-        </div>
-
-        {/* Metrics */}
-        <div className="mb-8 p-6 bg-white border border-slate-200 shadow-sm rounded-xl inline-block">
-          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Matching Respondents</p>
-          <p className="text-4xl font-bold text-slate-900">{filteredData.length}</p>
         </div>
 
         {/* Overall Chart */}
