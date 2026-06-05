@@ -7,12 +7,12 @@ import { Bar } from 'react-chartjs-2';
 ChartJS.register(Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const CATEGORIES = [
-  { id: 'genProf', title: 'General Professional Development', color: '#3b82f6' }, 
-  { id: 'legProc', title: 'Legislative Process and Environment', color: '#10b981' }, 
-  { id: 'policy', title: 'Policy and Issue Areas', color: '#f59e0b' }, 
-  { id: 'budget', title: 'Budget and Fiscal Policy', color: '#ef4444' }, 
-  { id: 'legal', title: 'Legal Foundations', color: '#8b5cf6' }, 
-  { id: 'research', title: 'Research and Drafting', color: '#0ea5e9' } 
+  { id: 'genProf', title: 'General Professional Development', color: '#3b82f6' }, // Blue
+  { id: 'legProc', title: 'Legislative Process and Environment', color: '#10b981' }, // Emerald
+  { id: 'policy', title: 'Policy and Issue Areas', color: '#f59e0b' }, // Amber
+  { id: 'budget', title: 'Budget and Fiscal Policy', color: '#ef4444' }, // Red
+  { id: 'legal', title: 'Legal Foundations', color: '#8b5cf6' }, // Violet
+  { id: 'research', title: 'Research and Drafting', color: '#0ea5e9' } // Sky
 ];
 
 const COMPARE_COLORS = ['#0f172a', '#64748b', '#94a3b8', '#cbd5e1'];
@@ -46,6 +46,7 @@ export default function PublicDashboard() {
   const attendanceOrder = ["None", "1-2", "3-4", "More than 4"];
   const sortedAttendance = attendanceOrder.filter(a => rawAttendance.includes(a));
 
+  // Build a map of Topic -> Category ID so we can color the overall chart correctly
   const topicCategoryMap: Record<string, string> = {};
   data.forEach(row => {
     if (row.categories) {
@@ -60,6 +61,7 @@ export default function PublicDashboard() {
     }
   });
 
+  // Toggle Logic for Multi-Select Filters
   const toggleSelection = (item: string, currentList: string[], setList: (val: string[]) => void) => {
     if (item === "All") {
       setList(["All"]);
@@ -75,12 +77,12 @@ export default function PublicDashboard() {
     setList(newList);
   };
 
-  // Determine what we are comparing
+  // Determine what we are comparing based on the toggle
   let compareGroups = ['All Selected'];
-  if (compareBy === 'workGroup' && !selectedWorkGroups.includes("All")) {
-    compareGroups = selectedWorkGroups;
-  } else if (compareBy === 'attendance' && !selectedAttendance.includes("All")) {
-    compareGroups = selectedAttendance;
+  if (compareBy === 'workGroup') {
+    compareGroups = selectedWorkGroups.includes("All") ? ['All Selected'] : selectedWorkGroups;
+  } else if (compareBy === 'attendance') {
+    compareGroups = selectedAttendance.includes("All") ? ['All Selected'] : selectedAttendance;
   }
 
   // Render Chart Helper
@@ -103,9 +105,9 @@ export default function PublicDashboard() {
     const allTopics = Array.from(topicSet);
     if (allTopics.length === 0) return null;
 
-    // 2. Count frequencies per group and calculate total respondents per group
+    // 2. Count frequencies per group and track total respondents per group
     const groupCounts: Record<string, Record<string, number>> = {};
-    const groupTotals: Record<string, number> = {}; // Total people in this group
+    const groupTotals: Record<string, number> = {};
 
     compareGroups.forEach(g => {
       groupCounts[g] = {};
@@ -114,21 +116,19 @@ export default function PublicDashboard() {
     });
 
     filteredData.forEach(row => {
-      let rowGroup = 'All Selected';
-      if (compareGroups.length > 1) {
-        rowGroup = compareBy === 'workGroup' ? row.workGroup : row.attendance;
-      }
-      
-      if (!compareGroups.includes(rowGroup)) return;
+      const rowGroup = compareBy === 'workGroup' ? row.workGroup : row.attendance;
+      const assignedGroup = compareGroups.includes('All Selected') ? 'All Selected' : rowGroup;
 
-      // Add to total respondent count for this specific group
-      groupTotals[rowGroup]++; 
+      if (!compareGroups.includes(assignedGroup)) return;
+
+      // Track total respondents for percentage math
+      groupTotals[assignedGroup]++;
 
       const tallyTopics = (catStr: string) => {
         catStr.split(';').forEach(t => {
           const cleanT = t.trim();
-          if (cleanT && groupCounts[rowGroup][cleanT] !== undefined) {
-            groupCounts[rowGroup][cleanT]++;
+          if (cleanT && groupCounts[assignedGroup][cleanT] !== undefined) {
+            groupCounts[assignedGroup][cleanT]++;
           }
         });
       };
@@ -142,7 +142,7 @@ export default function PublicDashboard() {
       }
     });
 
-    // 3. Find top topics overall for sorting (based on raw counts for consistency)
+    // 3. Find top topics overall for sorting
     const overallCounts: Record<string, number> = {};
     allTopics.forEach(t => {
       overallCounts[t] = compareGroups.reduce((sum, g) => sum + groupCounts[g][t], 0);
@@ -162,12 +162,14 @@ export default function PublicDashboard() {
       labels: topTopics.map(t => t.length > (isOverall ? 60 : 40) ? t.substring(0, isOverall ? 60 : 40) + '...' : t),
       datasets: compareGroups.map((g, index) => {
         
+        // Determine coloring based on context
         let barColors: string | string[];
         if (isComparing) {
-          barColors = COMPARE_COLORS[index % COMPARE_COLORS.length];
+          barColors = COMPARE_COLORS[index % COMPARE_COLORS.length]; // Use neutral colors to distinguish groups
         } else if (categoryId) {
-          barColors = CATEGORIES.find(c => c.id === categoryId)?.color || '#0f172a';
+          barColors = CATEGORIES.find(c => c.id === categoryId)?.color || '#0f172a'; // Single category color
         } else {
+          // Overall chart: color each bar by its respective parent category
           barColors = topTopics.map(t => {
             const catId = topicCategoryMap[t];
             return CATEGORIES.find(c => c.id === catId)?.color || '#0f172a';
@@ -178,7 +180,6 @@ export default function PublicDashboard() {
         const dataValues = topTopics.map(t => {
           const count = groupCounts[g][t];
           if (displayMode === 'percentage') {
-             // Avoid division by zero
             return groupTotals[g] > 0 ? Number(((count / groupTotals[g]) * 100).toFixed(1)) : 0;
           }
           return count;
@@ -195,11 +196,9 @@ export default function PublicDashboard() {
 
     return (
       <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-200 ${isOverall ? 'mb-8' : ''}`}>
-        <div className="flex justify-between items-start mb-4">
-          <h2 className={`${isOverall ? 'text-2xl' : 'text-lg'} font-bold text-slate-900`}>{title}</h2>
-        </div>
-
-        {/* Legend for the Overall Chart (Only shows when NOT comparing) */}
+        <h2 className={`${isOverall ? 'text-2xl' : 'text-lg'} font-bold text-slate-900 mb-4`}>{title}</h2>
+        
+        {/* Category Legend for Overall Chart */}
         {isOverall && !isComparing && (
           <div className="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border border-slate-100">
             {CATEGORIES.map(cat => (
@@ -252,13 +251,13 @@ export default function PublicDashboard() {
           <p className="text-slate-300">Session Topic Survey Results</p>
         </header>
 
-        {/* Sticky Header: Filters & Toggles */}
-        <div className="sticky top-4 z-50 bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-slate-200 mb-8 flex flex-col gap-6 transition-all">
+        {/* Sticky Header: Merged Filters & Metrics */}
+        <div className="sticky top-4 z-50 bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-slate-200 mb-8 flex flex-col xl:flex-row gap-6 items-start xl:items-center justify-between transition-all">
           
-          {/* Top Row: Master Controls & Metrics */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-100">
-            <div className="flex gap-4">
-              {/* Display Mode Toggle */}
+          <div className="flex-1 w-full flex flex-col gap-5">
+            
+            {/* NEW: Tool Toggles */}
+            <div className="flex flex-wrap gap-4 border-b border-slate-100 pb-4">
               <div className="bg-slate-100 p-1 rounded-lg inline-flex">
                 <button 
                   onClick={() => setDisplayMode('raw')}
@@ -274,7 +273,6 @@ export default function PublicDashboard() {
                 </button>
               </div>
 
-              {/* Compare By Toggle */}
               <div className="bg-slate-100 p-1 rounded-lg inline-flex">
                 <button 
                   onClick={() => setCompareBy('workGroup')}
@@ -291,15 +289,7 @@ export default function PublicDashboard() {
               </div>
             </div>
 
-            <div className="flex-shrink-0 bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg text-center shadow-inner">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-3">Matching Respondents</span>
-              <span className="text-2xl font-bold text-slate-900">{filteredData.length}</span>
-            </div>
-          </div>
-
-          {/* Bottom Row: The actual multi-select filters */}
-          <div className="flex flex-col xl:flex-row gap-6">
-            <div className="flex-1">
+            <div>
               <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Filter by Work Group</span>
               <div className="flex flex-wrap gap-2">
                 <button 
@@ -320,7 +310,7 @@ export default function PublicDashboard() {
               </div>
             </div>
 
-            <div className="flex-1">
+            <div>
               <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Filter by Attendance</span>
               <div className="flex flex-wrap gap-2">
                 <button 
@@ -340,6 +330,11 @@ export default function PublicDashboard() {
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="flex-shrink-0 w-full xl:w-auto bg-slate-50 border border-slate-200 p-4 rounded-lg text-center shadow-inner">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Matching Respondents</p>
+            <p className="text-4xl font-bold text-slate-900">{filteredData.length}</p>
           </div>
         </div>
 
