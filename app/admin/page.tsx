@@ -32,14 +32,23 @@ export default function AdminConverterPage() {
           return {
             workGroup: row["What legislative work group are you a part of?"] || "Unknown",
             attendance: typeof attendanceVal === 'string' ? attendanceVal.trim() : attendanceVal,
-            // We are now keeping the topics separated by category
+            // Maps exactly to the clean topic columns
             categories: {
               genProf: row["General Professional Development"] || "",
-              legProc: row["Legislative Process and Environment"] || "",
+              legProc: row["The Legislative Process and Environment"] || row["Legislative Process and Environment"] || "",
               policy: row["Policy and Issue Areas"] || "",
               budget: row["Budget and Fiscal Policy"] || "",
               legal: row["Legal Foundations"] || "",
               research: row["Research and Drafting"] || ""
+            },
+            // Maps exactly to the "Interest: " columns
+            interest: {
+              genProf: row["Interest: General Professional Development"] || "",
+              legProc: row["Interest: The Legislative Process and Environment"] || row["Interest: Legislative Process and Environment"] || "",
+              policy: row["Interest: Policy and Issue Areas"] || "",
+              budget: row["Interest: Budget and Fiscal Policy"] || "",
+              legal: row["Interest: Legal Foundations"] || "",
+              research: row["Interest: Research and Drafting"] || ""
             }
           };
         });
@@ -48,7 +57,7 @@ export default function AdminConverterPage() {
         const url = URL.createObjectURL(blob);
         
         setDownloadUrl(url);
-        setStatus(`Successfully processed ${cleanData.length} responses with category groupings. Ready to download!`);
+        setStatus(`Successfully processed ${cleanData.length} responses. Ready to download!`);
       } catch (error: any) {
         setStatus(`Error processing file: ${error.message}`);
       }
@@ -59,8 +68,8 @@ export default function AdminConverterPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">
       <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-200 max-w-md w-full text-center">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Data Converter V2</h1>
-        <p className="text-sm text-slate-500 mb-6">Upload your LSA Survey to generate the categorized JSON file.</p>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">Data Converter V4</h1>
+        <p className="text-sm text-slate-500 mb-6">Upload your final LSA Survey to generate the JSON file.</p>
         
         <input 
           type="file" 

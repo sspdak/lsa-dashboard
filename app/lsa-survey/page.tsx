@@ -7,12 +7,12 @@ import { Bar } from 'react-chartjs-2';
 ChartJS.register(Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const CATEGORIES = [
-  { id: 'genProf', title: 'General Professional Development', color: '#3b82f6' }, // Blue
-  { id: 'legProc', title: 'Legislative Process and Environment', color: '#10b981' }, // Emerald
-  { id: 'policy', title: 'Policy and Issue Areas', color: '#f59e0b' }, // Amber
-  { id: 'budget', title: 'Budget and Fiscal Policy', color: '#ef4444' }, // Red
-  { id: 'legal', title: 'Legal Foundations', color: '#8b5cf6' }, // Violet
-  { id: 'research', title: 'Research and Drafting', color: '#0ea5e9' } // Sky
+  { id: 'genProf', title: 'General Professional Development', color: '#3b82f6' }, 
+  { id: 'legProc', title: 'Legislative Process and Environment', color: '#10b981' }, 
+  { id: 'policy', title: 'Policy and Issue Areas', color: '#f59e0b' }, 
+  { id: 'budget', title: 'Budget and Fiscal Policy', color: '#ef4444' }, 
+  { id: 'legal', title: 'Legal Foundations', color: '#8b5cf6' }, 
+  { id: 'research', title: 'Research and Drafting', color: '#0ea5e9' } 
 ];
 
 const COMPARE_COLORS = ['#0f172a', '#64748b', '#94a3b8', '#cbd5e1'];
@@ -22,31 +22,27 @@ export default function PublicDashboard() {
   const [selectedWorkGroups, setSelectedWorkGroups] = useState<string[]>(["All"]);
   const [selectedAttendance, setSelectedAttendance] = useState<string[]>(["All"]);
   
-  // New State Toggles
   const [displayMode, setDisplayMode] = useState<'raw' | 'percentage'>('raw');
   const [compareBy, setCompareBy] = useState<'workGroup' | 'attendance'>('workGroup');
 
   useEffect(() => {
-    fetch('/survey-data.json')
+    fetch(`/survey-data.json?v=${new Date().getTime()}`)
       .then(res => res.json())
       .then(json => setData(json))
       .catch(err => console.error("Failed to load data.", err));
   }, []);
 
-  // Filter Data
   const filteredData = data.filter(row => {
     const matchWG = selectedWorkGroups.includes("All") || selectedWorkGroups.includes(row.workGroup);
     const matchAtt = selectedAttendance.includes("All") || selectedAttendance.includes(row.attendance);
     return matchWG && matchAtt;
   });
 
-  // Unique Options
   const allWorkGroups = Array.from(new Set(data.map(d => d.workGroup))).filter(Boolean).sort();
   const rawAttendance = Array.from(new Set(data.map(d => d.attendance))).filter(Boolean);
   const attendanceOrder = ["None", "1-2", "3-4", "More than 4"];
   const sortedAttendance = attendanceOrder.filter(a => rawAttendance.includes(a));
 
-  // Build a map of Topic -> Category ID so we can color the overall chart correctly
   const topicCategoryMap: Record<string, string> = {};
   data.forEach(row => {
     if (row.categories) {
@@ -61,7 +57,6 @@ export default function PublicDashboard() {
     }
   });
 
-  // Toggle Logic for Multi-Select Filters
   const toggleSelection = (item: string, currentList: string[], setList: (val: string[]) => void) => {
     if (item === "All") {
       setList(["All"]);
@@ -77,7 +72,6 @@ export default function PublicDashboard() {
     setList(newList);
   };
 
-  // Determine what we are comparing based on the toggle
   let compareGroups = ['All Selected'];
   if (compareBy === 'workGroup') {
     compareGroups = selectedWorkGroups.includes("All") ? ['All Selected'] : selectedWorkGroups;
@@ -85,11 +79,9 @@ export default function PublicDashboard() {
     compareGroups = selectedAttendance.includes("All") ? ['All Selected'] : selectedAttendance;
   }
 
-  // Render Chart Helper
   const renderChart = (categoryId: string | null, title: string, isOverall: boolean = false) => {
     const topicSet = new Set<string>();
     
-    // 1. Collect unique topics
     filteredData.forEach(row => {
       if (categoryId && row.categories?.[categoryId]) {
         row.categories[categoryId].split(';').forEach((t: string) => { if (t.trim()) topicSet.add(t.trim()); });
@@ -105,9 +97,10 @@ export default function PublicDashboard() {
     const allTopics = Array.from(topicSet);
     if (allTopics.length === 0) return null;
 
-    // 2. Count frequencies per group and track total respondents per group
     const groupCounts: Record<string, Record<string, number>> = {};
     const groupTotals: Record<string, number> = {};
+    const interestCounts: Record<string, number> = {};
+    let totalInterest = 0;
 
     compareGroups.forEach(g => {
       groupCounts[g] = {};
@@ -121,7 +114,6 @@ export default function PublicDashboard() {
 
       if (!compareGroups.includes(assignedGroup)) return;
 
-      // Track total respondents for percentage math
       groupTotals[assignedGroup]++;
 
       const tallyTopics = (catStr: string) => {
@@ -135,6 +127,16 @@ export default function PublicDashboard() {
 
       if (categoryId && row.categories?.[categoryId]) {
         tallyTopics(row.categories[categoryId]);
+        
+        // Tally the Interest Levels for this category
+        if (row.interest && row.interest[categoryId]) {
+          const val = row.interest[categoryId];
+          if (val) {
+            interestCounts[val] = (interestCounts[val] || 0) + 1;
+            totalInterest++;
+          }
+        }
+
       } else if (isOverall && row.categories) {
         Object.values(row.categories).forEach((catStr: any) => {
           if (typeof catStr === 'string') tallyTopics(catStr);
@@ -142,7 +144,8 @@ export default function PublicDashboard() {
       }
     });
 
-    // 3. Find top topics overall for sorting
+    const sortedInterest = Object.entries(interestCounts).sort((a, b) => b[1] - a[1]);
+
     const overallCounts: Record<string, number> = {};
     allTopics.forEach(t => {
       overallCounts[t] = compareGroups.reduce((sum, g) => sum + groupCounts[g][t], 0);
@@ -155,28 +158,23 @@ export default function PublicDashboard() {
 
     if (topTopics.length === 0 || overallCounts[topTopics[0]] === 0) return null;
 
-    // 4. Build ChartJS Data and Colors
     const isComparing = compareGroups.length > 1;
     
     const chartData = {
       labels: topTopics.map(t => t.length > (isOverall ? 60 : 40) ? t.substring(0, isOverall ? 60 : 40) + '...' : t),
       datasets: compareGroups.map((g, index) => {
-        
-        // Determine coloring based on context
         let barColors: string | string[];
         if (isComparing) {
-          barColors = COMPARE_COLORS[index % COMPARE_COLORS.length]; // Use neutral colors to distinguish groups
+          barColors = COMPARE_COLORS[index % COMPARE_COLORS.length];
         } else if (categoryId) {
-          barColors = CATEGORIES.find(c => c.id === categoryId)?.color || '#0f172a'; // Single category color
+          barColors = CATEGORIES.find(c => c.id === categoryId)?.color || '#0f172a';
         } else {
-          // Overall chart: color each bar by its respective parent category
           barColors = topTopics.map(t => {
             const catId = topicCategoryMap[t];
             return CATEGORIES.find(c => c.id === catId)?.color || '#0f172a';
           });
         }
 
-        // Apply raw number or percentage calculation
         const dataValues = topTopics.map(t => {
           const count = groupCounts[g][t];
           if (displayMode === 'percentage') {
@@ -196,9 +194,20 @@ export default function PublicDashboard() {
 
     return (
       <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-200 ${isOverall ? 'mb-8' : ''}`}>
-        <h2 className={`${isOverall ? 'text-2xl' : 'text-lg'} font-bold text-slate-900 mb-4`}>{title}</h2>
+        <h2 className={`${isOverall ? 'text-2xl' : 'text-lg'} font-bold text-slate-900 ${categoryId ? 'mb-3' : 'mb-4'}`}>{title}</h2>
         
-        {/* Category Legend for Overall Chart */}
+        {/* Simplified Interest Level Visual */}
+        {categoryId && sortedInterest.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-5">
+            <span className="text-xs font-semibold text-slate-500 uppercase flex items-center mr-1">General Interest:</span>
+            {sortedInterest.map(([label, count]) => (
+              <span key={label} className="text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md border border-slate-200">
+                {label} ({Math.round((count / totalInterest) * 100)}%)
+              </span>
+            ))}
+          </div>
+        )}
+
         {isOverall && !isComparing && (
           <div className="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border border-slate-100">
             {CATEGORIES.map(cat => (
@@ -251,12 +260,8 @@ export default function PublicDashboard() {
           <p className="text-slate-300">Session Topic Survey Results</p>
         </header>
 
-        {/* Sticky Header: Merged Filters & Metrics */}
         <div className="sticky top-4 z-50 bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-slate-200 mb-8 flex flex-col xl:flex-row gap-6 items-start xl:items-center justify-between transition-all">
-          
           <div className="flex-1 w-full flex flex-col gap-5">
-            
-            {/* NEW: Tool Toggles */}
             <div className="flex flex-wrap gap-4 border-b border-slate-100 pb-4">
               <div className="bg-slate-100 p-1 rounded-lg inline-flex">
                 <button 
@@ -338,14 +343,12 @@ export default function PublicDashboard() {
           </div>
         </div>
 
-        {/* Overall Chart */}
         {renderChart(null, "Top 10 Overall Topics", true) || (
           <div className="bg-white p-10 rounded-xl shadow-sm border border-slate-200 mb-8 text-center text-slate-500">
             No topic data found for this specific filter combination.
           </div>
         )}
 
-        {/* Category Breakdown Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {CATEGORIES.map(cat => (
             <div key={cat.id}>
